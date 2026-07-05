@@ -106,7 +106,8 @@ class QQBot(botpy.Client):
     async def _stop(self):
         await asyncio.to_thread(self._exit_queue.get)
         print('break loop')
-        raise KeyboardInterrupt()
+        # raise KeyboardInterrupt()
+        raise SystemExit()
 
     async def _get(self):
         return await asyncio.to_thread(self._send_queue.get)
