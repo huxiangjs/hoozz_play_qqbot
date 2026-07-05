@@ -7,12 +7,55 @@ import threading
 import queue
 import json
 import argparse
+import os
+import sys
+import time
+import botpy # pip install qq-botpy
+from botpy.message import DirectMessage, Message
+from botpy.ext.cog_yaml import read
+from botpy.message import C2CMessage
+from botpy.manage import C2CManageEvent
+import json
 
 parser = argparse.ArgumentParser(description='Hoozz Play QQ Bot')
-parser.add_argument('--url', type=str, required=False, help='MCP URL')
+parser.add_argument('--mcp_url', type=str, required=False, help='MCP url')
+parser.add_argument('--std', action="store_true", required=False, help='Using standard input and output')
+parser.add_argument('--config', type=str, required=False, help='Path to the YAML configuration file')
+parser.add_argument('--qq_appid', type=str, required=False, help='QQ appid')
+parser.add_argument('--qq_secret', type=str, required=False, help='QQ secret')
 args = parser.parse_args()
 
-mcp_url = args.url if args.url else 'http://localhost:8000/mcp'
+qq_appid = None
+qq_secret = None
+mcp_url = None
+
+config_file = args.config if args.config else os.path.join(os.path.dirname(__file__), "config.yaml")
+try:
+    config = read(config_file)
+    if 'appid' in config:
+        qq_appid = config['appid']
+    if 'secret' in config:
+        qq_secret = config['secret']
+    if 'mcp' in config:
+        mcp_url = config['mcp']
+except:
+    pass
+
+use_std = True if args.std else False
+
+if args.mcp_url:
+    mcp_url = args.mcp_url
+elif mcp_url is None:
+    mcp_url = 'http://localhost:8000/mcp'
+
+if args.qq_appid:
+    qq_appid = args.qq_appid
+
+if args.qq_secret:
+    qq_secret = args.qq_secret
+
+if qq_appid is None or qq_secret is None or mcp_url is None:
+    raise Exception('Invalid parameter')
 
 class std_io(threading.Thread):
     '''Standard input and output'''
@@ -43,6 +86,134 @@ class std_io(threading.Thread):
 
     def put(self, data):
         print(data)
+
+class QQBot(botpy.Client):
+    '''QQ bot'''
+
+    def __init__(self, recv_queue, send_queue):
+        self._recv_queue = recv_queue
+        self._send_queue = send_queue
+        self._exit_queue = queue.Queue(maxsize=0)
+        intents = botpy.Intents.all()
+        super().__init__(
+            intents=intents,
+            # log_level=10 # DEBUG
+        )
+
+    def break_loop(self):
+        self._exit_queue.put(None)
+
+    async def _stop(self):
+        await asyncio.to_thread(self._exit_queue.get)
+        print('break loop')
+        raise KeyboardInterrupt()
+
+    async def _get(self):
+        return await asyncio.to_thread(self._send_queue.get)
+
+    async def _put(self, data):
+        self._recv_queue.put(data)
+
+    async def on_ready(self):
+        print(f'robot [{self.robot.name}] on_ready')
+        asyncio.create_task(self._stop())
+
+    async def on_direct_message_create(self, message: DirectMessage):
+        content = f'robot [{self.robot.name}] recv: {message.content}'
+        print(content)
+        await self.api.post_dms(
+            guild_id=message.guild_id,
+            content=content,
+            msg_id=message.id,
+        )
+
+    async def on_group_at_message_create(self, message: Message):
+        content = f'robot [{self.robot.name}] recv: {message.content}'
+        print(content)
+
+    async def on_at_message_create(self, message: Message):
+        content = f'robot [{self.robot.name}] recv: {message.content}'
+        print(content)
+        if '/私信' in message.content:
+            dms_payload = await self.api.create_dms(message.guild_id, message.author.id)
+            await self.api.post_dms(
+                dms_payload['guild_id'],
+                content='hello',
+                msg_id=message.id
+            )
+
+    async def on_friend_add(self, event: C2CManageEvent):
+        print(f'{sys._getframe().f_code.co_name}: {str(event)}')
+        await self.api.post_c2c_message(
+            openid=event.openid,
+            msg_type=0,
+            event_id=event.event_id,
+            content='hello',
+        )
+
+    async def on_friend_del(self, event: C2CManageEvent):
+        print(f'{sys._getframe().f_code.co_name}: {str(event)}')
+
+    async def on_c2c_msg_reject(self, event: C2CManageEvent):
+        print(f'{sys._getframe().f_code.co_name}: {str(event)}')
+
+    async def on_c2c_msg_receive(self, event: C2CManageEvent):
+        print(f'{sys._getframe().f_code.co_name}: {str(event)}')
+
+    async def on_c2c_message_create(self, message: C2CMessage):
+        content = f'{message.timestamp} robot [{self.robot.name}] recv: \n' \
+                  f'{message.content}\n' \
+                  f'Attachments:\n' \
+                  f'{json.dumps(eval(str(message.attachments)), indent=4, ensure_ascii=False)}'
+        print(content)
+        await self._put(message.content)
+        content = await self._get()
+        # Send plain text
+        await message._api.post_c2c_message(
+            openid=message.author.user_openid,
+            msg_type=0, msg_id=message.id,
+            content=content
+        )
+
+class qqbot_io(threading.Thread):
+    '''QQ-Bot input and output'''
+
+    def __init__(self, appid, secret):
+        super().__init__()
+        self._appid = appid
+        self._secret = secret
+        self._recv_queue = queue.Queue(maxsize=0)
+        self._send_queue = queue.Queue(maxsize=0)
+        self._qqbot = QQBot(self._recv_queue, self._send_queue)
+        self._running = True
+
+    def run(self):
+        print('thread running')
+        while self._running:
+            try:
+                self._qqbot.run(appid=self._appid, secret=self._secret)
+                if self._running:
+                    time.sleep(10)
+            except Exception as e:
+                print(e)
+        print('thread exited')
+
+    def stop(self):
+        self._running = False
+        self._qqbot.break_loop()
+        self._recv_queue.put(None)
+
+    def get(self):
+        while True:
+            try:
+                data = self._recv_queue.get(block=True, timeout=1)
+                break
+            except queue.Empty:
+                pass
+        return data
+
+    def put(self, data):
+        self._send_queue.put(data)
 
 class mcp_client:
     '''MCP client'''
@@ -325,14 +496,23 @@ if __name__ == '__main__':
     while running:
         inout = None
         try:
-            inout = std_io()
+            if use_std:
+                inout = std_io()
+            else:
+                inout = qqbot_io(qq_appid, qq_secret)
             inout.start()
-            asyncio.run(main(inout, mcp_url))
+            # asyncio.run(main(inout, mcp_url))
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(main(inout, mcp_url))
         except KeyboardInterrupt:
-            print('Program interrupted by user')
+            print('program interrupted by user')
             running = False
         except Exception as e:
             print(e)
         finally:
             if inout:
                 inout.stop()
+        if running:
+            time.sleep(30)
+    print('program exited')
