@@ -64,6 +64,13 @@ class std_io(threading.Thread):
         super().__init__()
         self._queue = queue.Queue(maxsize=0)
 
+    def reset(self):
+        while True:
+            try:
+                self._queue.get(block=False)
+            except queue.Empty:
+                break
+
     def run(self):
         print('thread running')
         try:
@@ -110,7 +117,12 @@ class QQBot(botpy.Client):
         raise SystemExit()
 
     async def _get(self):
-        return await asyncio.to_thread(self._send_queue.get)
+        def data_get():
+            try:
+                return self._send_queue.get(block=True, timeout=5)
+            except queue.Empty:
+                return 'timeout'
+        return await asyncio.to_thread(data_get)
 
     async def _put(self, data):
         self._recv_queue.put(data)
@@ -187,6 +199,18 @@ class qqbot_io(threading.Thread):
         self._send_queue = queue.Queue(maxsize=0)
         self._qqbot = QQBot(self._recv_queue, self._send_queue)
         self._running = True
+
+    def reset(self):
+        while True:
+            try:
+                self._recv_queue.get(block=False)
+            except queue.Empty:
+                break
+        while True:
+            try:
+                self._send_queue.get(block=False)
+            except queue.Empty:
+                break
 
     def run(self):
         print('thread running')
@@ -489,31 +513,29 @@ class mcp_client:
         return retval
 
 async def main(inout, mcp_url):
+    inout.reset()
     client = mcp_client(inout, mcp_url)
     await client.run()
 
 if __name__ == '__main__':
-    running = True
-    while running:
-        inout = None
+    if use_std:
+        inout = std_io()
+    else:
+        inout = qqbot_io(qq_appid, qq_secret)
+    inout.start()
+
+    while True:
         try:
-            if use_std:
-                inout = std_io()
-            else:
-                inout = qqbot_io(qq_appid, qq_secret)
-            inout.start()
             # asyncio.run(main(inout, mcp_url))
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(main(inout, mcp_url))
         except KeyboardInterrupt:
             print('program interrupted by user')
-            running = False
+            break
         except Exception as e:
-            print(e)
+            print(f'Asyncio exited: {e}')
         finally:
-            if inout:
-                inout.stop()
-        if running:
-            time.sleep(30)
+            pass
+    inout.stop()
     print('program exited')
