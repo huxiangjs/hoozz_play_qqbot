@@ -303,14 +303,14 @@ class mcp_client:
                     class_sel = dev_bind[dev_sel[2]]
                     sub_sel = int(args[1])
                     dynamic_init = None
-                    dynamic_exe = None
+                    dynamic_op = None
                     for item in class_sel:
                         if item[0] == '__dynamic_init__':
                             dynamic_init = item[1]
                         elif item[0] == '__dynamic_op__':
-                            dynamic_exe = item[1]
-                    if dynamic_exe:
-                        result = await dynamic_exe(dev_id, sub_sel, dev_args)
+                            dynamic_op = item[1]
+                    if dynamic_op:
+                        result = await dynamic_op(dev_id, sub_sel, dev_args)
                     elif dynamic_init:
                         pass
                     else:
@@ -320,30 +320,52 @@ class mcp_client:
                     pass
             elif top_sel == -1:
                 dev_list = await self._manager_list_available_dev()
-                dev_list_str = ''
-                for top_i, top in enumerate(dev_list):
+                result_list = [ ]
+                for top in dev_list:
                     # Top menu
-                    dev_list_str += f'[{top_i}]: {top[1]}\n'
+                    top_menu_list = [top[1]]
                     # Sub menu
                     if top[2] in dev_bind:
                         sub_menu = dev_bind[top[2]]
-                        sub_menu_str = ''
+                        sub_menu_list = [ ]
                         dev_id = top[0]
                         dev_args = [ ]
-                        for sub_i, sub in enumerate(sub_menu):
+                        for sub in sub_menu:
                             name = sub[0]
                             if name == '__dynamic_init__':
                                 func = sub[1]
-                                sub_menu_str += await func(dev_id, dev_args)
+                                sub_menu_list += await func(dev_id, dev_args)
                             elif name == '__dynamic_op__':
                                 pass
                             else:
-                                sub_menu_str += f'  [{sub_i}]: {name}\n'
+                                sub_menu_list.append([name])
+                        top_menu_list.append(sub_menu_list)
                         top[3] = dev_args
-                        dev_list_str += sub_menu_str
-                if len(dev_list_str):
-                    dev_list_str = dev_list_str[:-1]
-                result = dev_list_str
+                        result_list.append(top_menu_list)
+                def _build(data, dep=0):
+                    retval = [ ]
+                    index_max = len(data) - 1
+                    for index, value in enumerate(data):
+                        if index == 0 and dep == 0:
+                            prefix = '╭─'
+                        elif index == index_max:
+                            prefix = '╰─'
+                        else:
+                            prefix = '├─'
+                        retval.append(f'{prefix} {index}. {value[0]}\n')
+                        if len(value) == 2:
+                            if dep == 0 and index != index_max:
+                                prefix = '│ '
+                            else:
+                                prefix = '  '
+                            sub_ret = ''
+                            for item in _build(value[1], dep+1):
+                                sub_ret += f'{prefix} {item}'
+                            retval.append(sub_ret)
+                    return retval
+                result = ''
+                for item in _build(result_list):
+                    result += item
             await self._put(result)
 
     async def _manager_list_available_dev(self):
@@ -433,7 +455,7 @@ class mcp_client:
 
     async def _dev_sensor_get_value(self, device_id, args):
         '''Get sensor data'''
-        retval = ''
+        retval = [ ]
         async with self._client:
             try:
                 result = await self._client.call_tool('dev_sensor_get_sensor_info', {'device_id': device_id})
@@ -471,14 +493,14 @@ class mcp_client:
                     sensor_id = item['sensor_id']
                     sensor_type = item['sensor_type']
                     sensor_data = data_dict[sensor_type][sensor_id]
-                    retval += f"  {sensor_name}{sensor_id}: {sensor_data}\n"
+                    retval.append([f"{sensor_name}{sensor_id}: {sensor_data}"])
             except:
                 pass
         return retval
 
     async def _dev_smart_ir_get_key_list(self, device_id, args):
         '''Get IR key list'''
-        retval = ''
+        retval = [ ]
         async with self._client:
             try:
                 result = await self._client.call_tool('dev_smart_ir_get_key_list', {'device_id': device_id})
@@ -487,9 +509,9 @@ class mcp_client:
                 ret_dict = json.loads(result.text)
                 # print(ret_dict)
                 key_list = ret_dict['key_list']
-                for index, value in enumerate(key_list):
-                    retval += f"  [{index}]: {value}\n"
-                    args.append(value)
+                for key in key_list:
+                    retval.append([key])
+                    args.append(key)
             except:
                 pass
         return retval
