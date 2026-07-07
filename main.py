@@ -366,6 +366,8 @@ class mcp_client:
                 result = ''
                 for item in _build(result_list):
                     result += item
+                if len(result) and result[-1] == '\n':
+                        result = result[:-1]
             await self._put(result)
 
     async def _manager_list_available_dev(self):
