@@ -19,7 +19,8 @@ import json
 
 parser = argparse.ArgumentParser(description='Hoozz Play QQ Bot')
 parser.add_argument('--mcp_url', type=str, required=False, help='MCP url')
-parser.add_argument('--std', action="store_true", required=False, help='Using standard input and output')
+parser.add_argument('--mcp_key', type=str, required=False, help='MCP key')
+parser.add_argument('--std', action='store_true', required=False, help='Using standard input and output')
 parser.add_argument('--config', type=str, required=False, help='Path to the YAML configuration file')
 parser.add_argument('--qq_appid', type=str, required=False, help='QQ appid')
 parser.add_argument('--qq_secret', type=str, required=False, help='QQ secret')
@@ -28,16 +29,19 @@ args = parser.parse_args()
 qq_appid = None
 qq_secret = None
 mcp_url = None
+mcp_key = None
 
-config_file = args.config if args.config else os.path.join(os.path.dirname(__file__), "config.yaml")
+config_file = args.config if args.config else os.path.join(os.path.dirname(__file__), 'config.yaml')
 try:
     config = read(config_file)
     if 'appid' in config:
         qq_appid = config['appid']
     if 'secret' in config:
         qq_secret = config['secret']
-    if 'mcp' in config:
-        mcp_url = config['mcp']
+    if 'mcp_url' in config:
+        mcp_url = config['mcp_url']
+    if 'mcp_key' in config:
+        mcp_key = config['mcp_key']
 except:
     pass
 
@@ -47,6 +51,11 @@ if args.mcp_url:
     mcp_url = args.mcp_url
 elif mcp_url is None:
     mcp_url = 'http://localhost:8000/mcp'
+
+if args.mcp_key:
+    mcp_key = args.mcp_key
+elif mcp_url is None:
+    mcp_key = ''
 
 if args.qq_appid:
     qq_appid = args.qq_appid
@@ -243,9 +252,23 @@ class qqbot_io(threading.Thread):
 class mcp_client:
     '''MCP client'''
 
-    def __init__(self, inout, mcp_url):
+    def __init__(self, inout, mcp_url, mcp_key):
         self._inout = inout
-        self._client = Client(mcp_url)
+        # self._client = Client(
+        #     mcp_url
+        # )
+        self._client = Client({
+            'mcpServers': {
+                'my_server': {
+                    'transport': 'streamable-http',
+                    'url': mcp_url,
+                    'headers': {
+                        'Authorization': f'Bearer {mcp_key}'
+                    },
+                    'tools': True
+                }
+            }
+        })
 
     async def _init(self):
         await asyncio.to_thread(self._inout.init)
@@ -495,7 +518,7 @@ class mcp_client:
                     sensor_id = item['sensor_id']
                     sensor_type = item['sensor_type']
                     sensor_data = data_dict[sensor_type][sensor_id]
-                    retval.append([f"{sensor_name}{sensor_id}: {sensor_data}"])
+                    retval.append([f'{sensor_name}{sensor_id}: {sensor_data}'])
             except:
                 pass
         return retval
@@ -536,9 +559,9 @@ class mcp_client:
                 pass
         return retval
 
-async def main(inout, mcp_url):
+async def main(inout, mcp_url, mcp_key):
     inout.reset()
-    client = mcp_client(inout, mcp_url)
+    client = mcp_client(inout, mcp_url, mcp_key)
     await client.run()
 
 if __name__ == '__main__':
@@ -553,7 +576,7 @@ if __name__ == '__main__':
             # asyncio.run(main(inout, mcp_url))
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(main(inout, mcp_url))
+            loop.run_until_complete(main(inout, mcp_url, mcp_key))
         except KeyboardInterrupt:
             print('program interrupted by user')
             break
