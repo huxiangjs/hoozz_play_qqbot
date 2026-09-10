@@ -190,6 +190,7 @@ class QQBot(botpy.Client):
         print(content)
         await self._put(message.content)
         content = await self._get()
+        content = content if content != '' else 'Content is empty!'
         # Send plain text
         await message._api.post_c2c_message(
             openid=message.author.user_openid,
@@ -400,11 +401,11 @@ class mcp_client:
             try:
                 result = await self._client.call_tool('manager_list_available_dev', { })
                 # print(result)
-                for item in result.content:
-                    dev_info = json.loads(item.text)
-                    device_id = dev_info['device_id']
-                    device_name = dev_info['device_name']
-                    class_name = dev_info['class_name']
+                content = json.loads(result.content[0].text)
+                for item in content:
+                    device_id = item['device_id']
+                    device_name = item['device_name']
+                    class_name = item['class_name']
                     dev_list.append([device_id, device_name, class_name, [ ]])
             except:
                 pass
