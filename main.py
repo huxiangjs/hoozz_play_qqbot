@@ -519,7 +519,7 @@ class mcp_client:
                     sensor_id = item['sensor_id']
                     sensor_type = item['sensor_type']
                     sensor_data = data_dict[sensor_type][sensor_id]
-                    retval.append([f'{sensor_name}{sensor_id}: {sensor_data}'])
+                    retval.append([f'{sensor_name}_{sensor_id}: {sensor_data}'])
             except:
                 pass
         return retval
